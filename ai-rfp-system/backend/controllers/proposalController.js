@@ -11,7 +11,7 @@ export const parseDemoProposal = async (req, res) => {
     if (!vendorId || !rfpId || !proposalText) {
       return res.status(400).json({
         success: false,
-        error: "vendorId, rfpId, and proposalText are required"
+        error: "vendorId, rfpId, and prossposalText are required"
       });
     }
     
