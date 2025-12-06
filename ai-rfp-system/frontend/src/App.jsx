@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import RFPChat from './components/RFPChat';
-import { rfpApi, vendorApi, proposalApi } from './services/api';
+import { rfpApi, vendorApi, proposalApi, comparisonApi } from './services/api';
 import './App.css';
 
 function App() {
@@ -15,6 +15,13 @@ function App() {
   const [parsedResult, setParsedResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  
+  // New states for AI Comparison tab
+  const [selectedRFPId, setSelectedRFPId] = useState("");
+  const [proposalFiles, setProposalFiles] = useState([]);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [comparisonProgress, setComparisonProgress] = useState(0);
+  const [comparisonData, setComparisonData] = useState(null);
 
   // Enhanced data normalizer for API response
   const normalizeParsedData = (apiData) => {
@@ -117,7 +124,7 @@ function App() {
     // If price is a string with currency symbol
     if (typeof price === 'string') {
       // Check if it's already formatted
-      if (price.includes('$') || price.includes('€') || price.includes('£')) {
+      if (price.includes('$') || price.includes('€') || price.includes('£') || price.includes('₹') || price.includes('Rs')) {
         return price;
       }
       // Try to parse as number
@@ -287,6 +294,103 @@ function App() {
     }
   };
 
+  // Handler for proposal file selection (AI Comparison)
+  const handleProposalFilesChange = (e) => {
+    const files = Array.from(e.target.files);
+    const txtFiles = files.filter(file => 
+      file.type === 'text/plain' || file.name.endsWith('.txt')
+    );
+    
+    if (txtFiles.length !== files.length) {
+      alert('Only .txt files are allowed. Non-text files were ignored.');
+    }
+    
+    setProposalFiles(prev => [...prev, ...txtFiles]);
+  };
+
+  // Remove a proposal file
+  const removeProposalFile = (index) => {
+    setProposalFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle AI Comparison
+  const handleAIComparison = async () => {
+    if (!selectedRFPId) {
+      alert('Please select an RFP first');
+      return;
+    }
+    
+    if (proposalFiles.length === 0) {
+      alert('Please upload at least one proposal file');
+      return;
+    }
+    
+    setComparisonLoading(true);
+    setComparisonProgress(0);
+    setComparisonData(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append('rfpId', selectedRFPId);
+      
+      proposalFiles.forEach(file => {
+        formData.append('proposalFiles', file);
+      });
+      
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+        setComparisonProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 500);
+      
+      // Use the comparison API
+      const response = await comparisonApi.compare(selectedRFPId, proposalFiles);
+      
+      clearInterval(progressInterval);
+      setComparisonProgress(100);
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Comparison failed');
+      }
+      
+      setComparisonData(response);
+      console.log('✅ AI Comparison Result:', response);
+      
+      // Auto-scroll to results
+      setTimeout(() => {
+        const resultsElement = document.getElementById('comparison-results');
+        if (resultsElement) {
+          resultsElement.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }
+      }, 200);
+      
+    } catch (error) {
+      console.error('❌ Comparison Error Details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      });
+      
+      alert(`Comparison failed: ${error.response?.data?.error || error.message}`);
+      
+      if (error.response) {
+        console.log('Full error response:', error.response);
+      }
+    } finally {
+      setComparisonLoading(false);
+      setTimeout(() => setComparisonProgress(0), 500);
+    }
+  };
+
+  // Handler for the old compare button
   const handleCompareProposals = async () => {
     const rfpId = rfps[0]?._id || '69306ad0666b5f64831825d9';
     
@@ -348,7 +452,6 @@ function App() {
           {activeTab === 'create' && (
             <div>
               <RFPChat />
-             
             </div>
           )}
 
@@ -874,23 +977,338 @@ function App() {
 
           {activeTab === 'compare' && (
             <div className="bg-white rounded-lg shadow-lg p-6">
-              <h2 className="text-xl font-bold mb-4">AI Proposal Comparison</h2>
-              <button
-                onClick={handleCompareProposals}
-                className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 mb-6"
-              >
-                Run AI Comparison
-              </button>
-
-              {comparisonResult ? (
-                <div className="border rounded p-4 bg-gray-50">
-                  <h3 className="font-bold mb-2">AI Analysis Results</h3>
-                  <pre className="whitespace-pre-wrap text-sm">
-                    {JSON.stringify(comparisonResult, null, 2)}
-                  </pre>
+              <h2 className="text-2xl font-bold mb-6 text-gray-800">🤖 AI Proposal Comparison</h2>
+              <p className="text-gray-600 mb-8">
+                Select an RFP and upload multiple vendor proposals (.txt files) for AI-powered comparison
+              </p>
+              
+              {/* RFP Selection */}
+              <div className="mb-8">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  📋 Select RFP to Compare Against
+                </label>
+                <select
+                  value={selectedRFPId}
+                  onChange={(e) => setSelectedRFPId(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="">-- Select an RFP --</option>
+                  {rfps.map(rfp => (
+                    <option key={rfp._id} value={rfp._id}>
+                      {rfp.title} | Budget: {rfp.budget} | Status: {rfp.status}
+                    </option>
+                  ))}
+                </select>
+                
+                {/* Display Selected RFP Details */}
+                {selectedRFPId && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <h4 className="font-bold text-blue-800 mb-2">Selected RFP Details:</h4>
+                    {(() => {
+                      const selectedRFP = rfps.find(r => r._id === selectedRFPId);
+                      return selectedRFP ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <span className="text-gray-600">Title:</span>
+                            <span className="ml-2 font-semibold">{selectedRFP.title}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Budget:</span>
+                            <span className="ml-2 font-semibold">{selectedRFP.budget}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Delivery:</span>
+                            <span className="ml-2 font-semibold">{selectedRFP.deliveryTimeline}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Items:</span>
+                            <span className="ml-2 font-semibold">{selectedRFP.items.length} items</span>
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+              </div>
+              
+              {/* File Upload Section */}
+              <div className="mb-8">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  📄 Upload Vendor Proposal Files (.txt only)
+                </label>
+                <div className="p-6 border-2 border-dashed border-gray-300 rounded-lg">
+                  <div className="flex flex-col items-center justify-center">
+                    <svg className="w-12 h-12 text-indigo-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    
+                    <label className="cursor-pointer bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors mb-2">
+                      <span className="font-semibold">Select Files</span>
+                      <input
+                        type="file"
+                        accept=".txt"
+                        multiple
+                        onChange={handleProposalFilesChange}
+                        className="hidden"
+                        id="proposal-files"
+                      />
+                    </label>
+                    
+                    <p className="text-sm text-gray-500">or drag and drop .txt files here</p>
+                    <p className="mt-1 text-xs text-gray-400">Max 10 files, 10MB each</p>
+                  </div>
+                  
+                  {/* Selected Files List */}
+                  {proposalFiles.length > 0 && (
+                    <div className="mt-6">
+                      <h4 className="font-medium text-gray-700 mb-3">Selected Files ({proposalFiles.length}):</h4>
+                      <div className="space-y-2">
+                        {proposalFiles.map((file, index) => (
+                          <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded border">
+                            <div className="flex items-center">
+                              <svg className="w-5 h-5 text-green-500 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                              </svg>
+                              <span className="font-medium">{file.name}</span>
+                              <span className="ml-2 text-xs text-gray-500">({(file.size / 1024).toFixed(1)} KB)</span>
+                            </div>
+                            <button
+                              onClick={() => removeProposalFile(index)}
+                              className="text-red-500 hover:text-red-700 text-sm"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="text-gray-600">Click above to compare proposals with AI</p>
+              </div>
+              
+              {/* Compare Button */}
+              <div className="flex justify-center">
+                <button
+                  onClick={handleAIComparison}
+                  disabled={!selectedRFPId || proposalFiles.length === 0 || comparisonLoading}
+                  className={`
+                    px-8 py-3 rounded-lg font-semibold text-lg
+                    transition-all duration-300 transform hover:scale-105
+                    ${!selectedRFPId || proposalFiles.length === 0 || comparisonLoading
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700'}
+                  `}
+                >
+                  {comparisonLoading ? (
+                    <div className="flex items-center">
+                      <svg className="animate-spin h-5 w-5 mr-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      AI is comparing proposals...
+                    </div>
+                  ) : '🤖 Compare with AI'}
+                </button>
+              </div>
+              
+              {/* Progress Bar */}
+              {comparisonLoading && (
+                <div className="mt-6">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>AI is analyzing and comparing...</span>
+                    <span>{comparisonProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div 
+                      className="bg-green-600 h-2.5 rounded-full transition-all duration-300"
+                      style={{ width: `${comparisonProgress}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Comparison Results Section */}
+              {comparisonData && (
+                <div id="comparison-results" className="mt-8">
+                  <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+                    {/* Results Header */}
+                    <div className="px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          ✅ AI Comparison Complete
+                          <span className="ml-4 px-3 py-1 bg-white bg-opacity-20 rounded-full text-sm">
+                            {comparisonData.proposals?.length || 0} Proposals Analyzed
+                          </span>
+                        </div>
+                        <button 
+                          onClick={() => setComparisonData(null)}
+                          className="text-white hover:text-gray-200 text-lg"
+                          title="Clear results"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Best Proposal Card */}
+                    {comparisonData.bestProposal && (
+                      <div className="p-6 bg-gradient-to-r from-yellow-50 to-orange-50 border-b border-yellow-200">
+                        <div className="flex items-center mb-4">
+                          <div className="p-2 bg-yellow-100 rounded-lg mr-3">
+                            <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+                            </svg>
+                          </div>
+                          <h3 className="text-xl font-bold text-yellow-800">🏆 Best Vendor Proposal</h3>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                          <div className="p-3 bg-white rounded border">
+                            <div className="text-sm text-gray-500">Recommended Vendor</div>
+                            <div className="text-lg font-bold text-green-600">
+                              {comparisonData.bestProposal.vendorName || 'Unknown'}
+                            </div>
+                            {comparisonData.bestProposal.price && (
+                              <div className="text-sm text-gray-600 mt-1">
+                                Price: {comparisonData.bestProposal.price}
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-3 bg-white rounded border">
+                            <div className="text-sm text-gray-500">Proposal File</div>
+                            <div className="text-lg font-semibold text-blue-600">
+                              {comparisonData.bestProposal.fileName || 'Unknown file'}
+                            </div>
+                          </div>
+                          <div className="p-3 bg-white rounded border">
+                            <div className="text-sm text-gray-500">AI Recommendation</div>
+                            <div className="text-sm text-gray-700 mt-1">
+                              {comparisonData.bestProposal.reason || 'AI recommendation'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Comparison Summary */}
+                    <div className="p-6">
+                      <h4 className="font-bold text-gray-800 mb-4">📊 AI Comparison Summary</h4>
+                      <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 mb-6">
+                        <p className="text-gray-700">{comparisonData.comparison?.summary || 'AI comparison completed successfully.'}</p>
+                      </div>
+                      
+                      {/* Detailed Comparison Table */}
+                      <h4 className="font-bold text-gray-800 mb-4">📋 Detailed Proposal Analysis</h4>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full bg-white border border-gray-300">
+                          <thead className="bg-gray-100">
+                            <tr>
+                              <th className="px-4 py-3 text-left">Vendor</th>
+                              <th className="px-4 py-3 text-left">Compatibility</th>
+                              <th className="px-4 py-3 text-left">Price Analysis</th>
+                              <th className="px-4 py-3 text-left">Spec Match</th>
+                              <th className="px-4 py-3 text-left">Delivery</th>
+                              <th className="px-4 py-3 text-left">Strengths</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {comparisonData.comparison?.comparisonResults?.map((result, index) => (
+                              <tr key={index} className={`border-t ${result.proposalIndex === comparisonData.bestProposal?.index ? 'bg-green-50' : ''}`}>
+                                <td className="px-4 py-3 font-semibold">
+                                  {comparisonData.proposals?.[index]?.vendorName || `Vendor ${index + 1}`}
+                                  {result.proposalIndex === comparisonData.bestProposal?.index && (
+                                    <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">🏆 Best</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center">
+                                    <div className="w-24 bg-gray-200 rounded-full h-2.5 mr-3">
+                                      <div 
+                                        className={`h-2.5 rounded-full ${result.compatibilityScore >= 70 ? 'bg-green-500' : result.compatibilityScore >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                        style={{ width: `${result.compatibilityScore || 0}%` }}
+                                      ></div>
+                                    </div>
+                                    <span className={`font-bold ${result.compatibilityScore >= 70 ? 'text-green-600' : result.compatibilityScore >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                      {result.compatibilityScore || 0}%
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="space-y-1">
+                                    <span className={`px-2 py-1 rounded text-xs ${result.priceAnalysis?.includes('Over') ? 'bg-red-100 text-red-800' : result.priceAnalysis?.includes('Within') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                      {result.priceAnalysis || 'Not analyzed'}
+                                    </span>
+                                    {comparisonData.proposals?.[index]?.price && (
+                                      <div className="text-xs text-gray-600 font-medium">
+                                        ({comparisonData.proposals[index].price})
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center">
+                                    <div className="w-20 bg-gray-200 rounded-full h-2 mr-3">
+                                      <div 
+                                        className="h-2 rounded-full bg-blue-500"
+                                        style={{ width: `${result.specMatchPercentage || 0}%` }}
+                                      ></div>
+                                    </div>
+                                    <span>{result.specMatchPercentage || 0}%</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="space-y-1">
+                                    <span className={`px-2 py-1 rounded text-xs ${result.deliveryMatch?.includes('Late') ? 'bg-red-100 text-red-800' : result.deliveryMatch?.includes('Exceeds') ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                      {result.deliveryMatch || 'Not specified'}
+                                    </span>
+                                    {result.deliveryMatch && result.deliveryMatch !== 'Not specified' && (
+                                      <div className="text-xs text-gray-600">
+                                        Timeline: {result.deliveryMatch}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="space-y-1">
+                                    {result.strengths?.slice(0, 2).map((strength, idx) => (
+                                      <div key={idx} className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded">
+                                        {strength}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      
+                      {/* AI Comments Section */}
+                      {comparisonData.comparison?.comparisonResults?.some(r => r.aiComments) && (
+                        <div className="mt-6 p-5 bg-blue-50 rounded-xl border border-blue-200">
+                          <h4 className="font-bold text-gray-800 mb-3">💡 AI Analysis Comments</h4>
+                          <div className="space-y-3">
+                            {comparisonData.comparison?.comparisonResults?.map((result, index) => (
+                              result.aiComments && (
+                                <div key={index} className="p-3 bg-white rounded border">
+                                  <div className="font-medium text-gray-700 mb-1">
+                                    {comparisonData.proposals?.[index]?.vendorName || `Proposal ${index + 1}`}:
+                                  </div>
+                                  <div className="text-sm text-gray-600">{result.aiComments}</div>
+                                  {comparisonData.proposals?.[index]?.price && (
+                                    <div className="text-sm text-gray-700 mt-2 font-medium">
+                                      Price: {comparisonData.proposals[index].price}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}

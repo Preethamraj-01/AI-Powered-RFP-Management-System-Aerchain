@@ -116,4 +116,54 @@ export const proposalApi = {
   analyze: (proposalId) => api.get(`/proposals/${proposalId}/analyze`),
 };
 
+// Comparison API - for AI comparison of proposals against RFP
+export const comparisonApi = {
+  // Compare multiple proposal files against an RFP
+  compare: async (rfpId, files) => {
+    console.log('🔄 comparisonApi.compare called with:', { rfpId, filesCount: files.length });
+    
+    const formData = new FormData();
+    formData.append('rfpId', rfpId);
+    
+    files.forEach((file, index) => {
+      formData.append('proposalFiles', file);
+      console.log(`📄 Added file ${index + 1}: ${file.name} (${file.size} bytes)`);
+    });
+    
+    try {
+      const response = await api.post('/comparison/compare', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 120000, // 2 minutes for AI comparison
+      });
+      
+      console.log('✅ Comparison API Response received:', response.status);
+      return response.data;
+      
+    } catch (error) {
+      console.error('❌ Comparison API Error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      throw error;
+    }
+  },
+  
+  // Get comparison results for an RFP
+  getResults: (rfpId) => {
+    console.log('🔄 Getting comparison results for RFP:', rfpId);
+    return api.get(`/comparison/results/${rfpId}`).then(response => response.data);
+  },
+  
+  // Test endpoint to check if comparison API is working
+  test: () => {
+    console.log('🔄 Testing comparison API connection');
+    return api.get('/comparison/test').then(response => response.data);
+  }
+};
+
+// Export all APIs including the new comparisonApi
 export default api;
+
