@@ -1,3 +1,14 @@
+To run code
+
+1. Clone repository
+2. Install dependencies: `npm install` (both folders, frontend and backend)
+3. Configure environment variables (.env files)
+4. Run MailHog: `MailHog.exe`
+5. Start backend: `node server.js`
+6. Start frontend: `npm start`
+
+
+
 Please find .env file
 
 PORT=5000
