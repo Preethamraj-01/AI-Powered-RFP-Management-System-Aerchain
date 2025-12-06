@@ -348,29 +348,7 @@ function App() {
           {activeTab === 'create' && (
             <div>
               <RFPChat />
-              <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-4 rounded shadow">
-                  <h3 className="font-bold mb-2">🟢 System Status</h3>
-                  <p className="text-sm">Backend: <span className="text-green-600">✅ Running</span></p>
-                  <p className="text-sm">Database: <span className="text-green-600">✅ Connected</span></p>
-                  <p className="text-sm">AI API: <span className="text-green-600">✅ Ready</span></p>
-                </div>
-                <div className="bg-white p-4 rounded shadow">
-                  <h3 className="font-bold mb-2">🔗 Quick Links</h3>
-                  <p className="text-sm">
-                    <a href="http://localhost:8025" className="text-blue-500 hover:underline block">View MailHog</a>
-                    <a href="http://localhost:5000/api/rfp" className="text-blue-500 hover:underline block">Backend API</a>
-                  </p>
-                </div>
-                <div className="bg-white p-4 rounded shadow">
-                  <h3 className="font-bold mb-2">📋 Examples</h3>
-                  <ul className="text-sm text-gray-600 space-y-1">
-                    <li>"20 monitors, 24-inch, $8,000"</li>
-                    <li>"50 chairs, 4 weeks delivery"</li>
-                    <li>"Software for 100 users"</li>
-                  </ul>
-                </div>
-              </div>
+             
             </div>
           )}
 
@@ -920,7 +898,6 @@ function App() {
 
         {/* Footer */}
         <div className="mt-8 text-center text-sm text-gray-600 border-t pt-4">
-          <p>Backend: localhost:5000 | Frontend: localhost:3000 | MailHog: localhost:8025</p>
           <p className="mt-2">
             <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">✅ System Ready</span>
             <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs ml-2">🤖 AI Powered</span>
