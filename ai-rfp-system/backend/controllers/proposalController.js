@@ -4,82 +4,120 @@ import Vendor from "../models/Vendor.js";
 import { parseProposalFromEmail, compareProposals } from "../utils/ai.js";
 
 // Parse a demo vendor response
+//import { parseProposalFromEmail } from '../services/aiService.js';
+import multer from 'multer';
+
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+export const upload = multer({ storage });
+
 export const parseDemoProposal = async (req, res) => {
   try {
-    const { vendorId, rfpId, proposalText } = req.body;
+    console.log('=== parseDemoProposal START ===');
     
-    if (!vendorId || !rfpId || !proposalText) {
+    // Debug logging
+    console.log('Request received:', {
+      method: req.method,
+      contentType: req.headers['content-type'],
+      hasFile: !!req.file,
+      fileInfo: req.file ? {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        bufferType: req.file.buffer?.constructor?.name,
+        bufferLength: req.file.buffer?.length
+      } : null,
+      bodyKeys: Object.keys(req.body)
+    });
+
+    if (!req.file) {
+      console.log('ERROR: No file found in request');
       return res.status(400).json({
         success: false,
-        error: "vendorId, rfpId, and prossposalText are required"
+        error: "No file uploaded. Please select a file.",
+        debug: {
+          hasFile: false,
+          contentType: req.headers['content-type'],
+          receivedFields: Object.keys(req.body)
+        }
       });
     }
+
+    const { originalname, mimetype, buffer, size } = req.file;
+
+    // Validate file type
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'application/msword'
+    ];
     
-    const vendor = await Vendor.findById(vendorId);
-    const rfp = await RFP.findById(rfpId);
-    
-    if (!vendor || !rfp) {
-      return res.status(404).json({
+    if (!allowedTypes.includes(mimetype) && 
+        !originalname.match(/\.(pdf|docx|txt|doc)$/i)) {
+      return res.status(400).json({
         success: false,
-        error: "Vendor or RFP not found"
+        error: `Unsupported file type: ${mimetype}. Please upload PDF, DOCX, or TXT.`
       });
     }
-    
-    console.log(`\n🤖 Parsing proposal from ${vendor.name} for RFP: ${rfp.title}`);
-    
-    // Use AI to parse proposal
-    const parsedData = await parseProposalFromEmail(proposalText);
-    
-    // Create proposal record
-    const proposal = new Proposal({
-      rfpId: rfp._id,
-      vendorId: vendor._id,
-      totalPrice: parsedData.totalPrice || 0,
-      deliveryTimeline: parsedData.deliveryTimeline || "Not specified",
-      paymentTerms: parsedData.paymentTerms || "net 30",
-      warranty: parsedData.warranty || "Standard",
-      notes: parsedData.notes || "",
-      items: parsedData.items || [],
-      rawEmail: proposalText,
-      aiScore: parsedData.score || 50,
-      aiSummary: parsedData.summary || "Parsed by AI",
-      status: 'submitted'
+
+    console.log('Processing file:', {
+      name: originalname,
+      type: mimetype,
+      size: `${(size / 1024).toFixed(2)} KB`,
+      bufferLength: buffer?.length
     });
+
+    // Prepare file object for AI parsing
+    const fileObj = {
+      buffer: buffer,
+      name: originalname,
+      type: mimetype,
+      size: size
+    };
+
+    // Parse with AI
+    console.log('Calling AI parser...');
+    const parsedData = await parseProposalFromEmail(fileObj);
     
-    await proposal.save();
-    
-    // Update RFP and vendor counts
-    await RFP.findByIdAndUpdate(rfpId, {
-      $inc: { proposalsReceived: 1 }
+    console.log('AI parser returned:', {
+      success: parsedData.success !== false,
+      hasError: !!parsedData.error,
+      extractedTextLength: parsedData.extractedText?.length,
+      score: parsedData.score
     });
-    
-    await Vendor.findByIdAndUpdate(vendorId, {
-      $inc: { proposalsSubmitted: 1 }
-    });
-    
-    console.log(`✅ Proposal saved: $${proposal.totalPrice}, Score: ${proposal.aiScore}`);
-    
-    res.json({
-      success: true,
-      message: `Proposal from ${vendor.name} parsed and saved`,
+
+    // Format the response
+    const response = {
+      success: parsedData.success !== false,
+      message: parsedData.success !== false 
+        ? 'File parsed successfully by AI' 
+        : parsedData.error || 'AI parsing failed',
       data: {
-        proposal: proposal,
-        aiAnalysis: parsedData,
-        vendor: vendor.name,
-        rfp: rfp.title
+        extracted: parsedData,
+        fileInfo: {
+          name: originalname,
+          type: mimetype,
+          size: size
+        }
       }
-    });
-    
+    };
+
+    console.log('=== parseDemoProposal END ===');
+    return res.json(response);
+
   } catch (error) {
-    console.error("Error parsing proposal:", error);
-    res.status(500).json({
+    console.error("❌ Error in parseDemoProposal:", error.message);
+    console.error("Stack trace:", error.stack);
+    
+    return res.status(500).json({
       success: false,
-      error: "Failed to parse proposal",
-      details: error.message
+      error: "Server error while parsing file",
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
-
 // Get proposals for an RFP
 export const getProposalsByRFP = async (req, res) => {
   try {

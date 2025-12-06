@@ -1,12 +1,15 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// Base URL for your backend
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+// Create axios instance with default config
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000, // 30 seconds timeout for large files
 });
 
 // RFP API
@@ -37,41 +40,80 @@ export const vendorApi = {
   getStats: () => api.get('/vendors/stats'),
 };
 
-// Proposal API
+// Proposal API - FIXED VERSION
 export const proposalApi = {
-  parseDemo: async (vendorId, rfpId, input) => {
-  let response;
-
-  if (input instanceof File) {
-    // PDF upload
-    const form = new FormData();
-    form.append("file", input);
-    form.append("vendorId", vendorId);
-    form.append("rfpId", rfpId);
-    response = await api.post("/proposals/parse-demo", form, {
-      headers: { "Content-Type": "multipart/form-data" }
+  // Parse proposal from uploaded file (for demo/testing)
+  parseDemoWithFile: async (formData) => {
+    console.log('🔄 parseDemoWithFile called with FormData');
+    
+    // Debug FormData contents
+    if (formData instanceof FormData) {
+      console.log('📁 FormData entries:');
+      for (let [key, value] of formData.entries()) {
+        console.log(`${key}:`, value);
+      }
+    } else {
+      console.log('❌ Input is not FormData:', typeof formData);
+    }
+    
+    try {
+      const response = await api.post("/proposals/parse-demo", formData, {
+        headers: { 
+          "Content-Type": "multipart/form-data",
+        },
+        timeout: 60000, // 60 seconds for AI processing
+      });
+      
+      console.log('✅ API Response received:', response.status);
+      return response.data;
+      
+    } catch (error) {
+      console.error('❌ API Error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      throw error;
+    }
+  },
+  
+  // Submit proposal (regular submission)
+  submit: (proposalData) => api.post('/proposals', proposalData),
+  
+  // Get all proposals
+  getAll: () => api.get('/proposals'),
+  
+  // Get single proposal by ID
+  getById: (id) => api.get(`/proposals/${id}`),
+  
+  // Get proposals for specific RFP
+  getByRfpId: (rfpId) => api.get(`/proposals/rfp/${rfpId}`),
+  
+  // Get proposals from specific vendor
+  getByVendorId: (vendorId) => api.get(`/proposals/vendor/${vendorId}`),
+  
+  // Update proposal status
+  updateStatus: (proposalId, status) => api.put(`/proposals/${proposalId}/status`, { status }),
+  
+  // Delete proposal
+  delete: (id) => api.delete(`/proposals/${id}`),
+  
+  // AI Compare proposals for an RFP
+  compare: (rfpId) => api.get(`/proposals/compare/${rfpId}`).then(response => response.data),
+  
+  // Extract text from uploaded file
+  extractText: async (formData) => {
+    const response = await api.post('/proposals/extract-text', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      }
     });
-  } else {
-    // text fallback
-    response = await api.post("/proposals/parse-demo", {
-      vendorId,
-      rfpId,
-      proposalText: input
-    });
-  }
-
-  const extracted = response.data.data.extracted;
-
-  return {
-    title: extracted.title,
-    items: extracted.items,
-    budget: extracted.budget,
-    warranty: extracted.warranty,
-    expectedDeliveryDate: extracted.expectedDeliveryDate,
-    _debug_raw: extracted
-  };
-}
-
+    
+    return response.data;
+  },
+  
+  // Analyze proposal content
+  analyze: (proposalId) => api.get(`/proposals/${proposalId}/analyze`),
 };
 
 export default api;

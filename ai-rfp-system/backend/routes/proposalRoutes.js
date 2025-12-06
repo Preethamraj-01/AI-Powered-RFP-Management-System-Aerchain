@@ -1,4 +1,5 @@
 import express from "express";
+import multer from 'multer';
 
 import {
   parseDemoProposal,
@@ -9,8 +10,17 @@ import {
 
 const router = express.Router();
 
-// Parse a demo vendor response
-router.post("/parse-demo", parseDemoProposal);
+// Configure multer for memory storage
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  }
+});
+
+// POST /api/proposals/parse-demo
+router.post('/parse-demo', upload.single('file'), parseDemoProposal);
 
 // Get proposals for an RFP
 router.get("/rfp/:rfpId", getProposalsByRFP);
