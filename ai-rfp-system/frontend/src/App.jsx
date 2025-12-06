@@ -16,6 +16,138 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
+  // Enhanced data normalizer for API response
+  const normalizeParsedData = (apiData) => {
+    console.log('🔍 Normalizing API data:', apiData);
+    
+    // If data is already in the right format, return it
+    if (apiData && apiData.title && apiData.totalPrice) {
+      return apiData;
+    }
+    
+    // Extract data from various possible API response structures
+    let extracted = apiData;
+    
+    // If data is nested in response.data or response.data.extracted
+    if (apiData?.data?.extracted) {
+      extracted = apiData.data.extracted;
+    } else if (apiData?.data) {
+      extracted = apiData.data;
+    } else if (apiData?.extracted) {
+      extracted = apiData.extracted;
+    }
+    
+    // Default normalized structure
+    const normalized = {
+      title: extracted?.title || extracted?.proposalTitle || 'Untitled Proposal',
+      vendorName: extracted?.vendorName || extracted?.vendor || 'Unknown Vendor',
+      totalPrice: extracted?.totalPrice || extracted?.price || extracted?.cost || 'Not specified',
+      budget: extracted?.budget || extracted?.budgetAmount || 'Not specified',
+      quantity: extracted?.quantity || extracted?.units || extracted?.qty || 'Not specified',
+      items: Array.isArray(extracted?.items) ? extracted.items : 
+             (extracted?.items ? [extracted.items] : 
+             (extracted?.description ? [extracted.description] : [])),
+      specifications: extracted?.specifications || extracted?.specs || extracted?.techSpecs || 'Not specified',
+      paymentTerms: extracted?.paymentTerms || extracted?.terms || 'Not specified',
+      warranty: extracted?.warranty || extracted?.warrantyPeriod || 'Not specified',
+      deliveryTimeline: extracted?.deliveryTimeline || extracted?.delivery || extracted?.timeline || 'Not specified',
+      rfpReference: extracted?.rfpReference || extracted?.rfpId || 'Not specified',
+      notes: extracted?.notes || extracted?.additionalDetails || extracted?.comments || 'Not specified',
+      summary: extracted?.summary || extracted?.aiSummary || extracted?.executiveSummary || '',
+      score: extracted?.score || extracted?.confidence || extracted?.aiScore || extracted?.analysisScore || 0,
+      success: extracted?.success !== false
+    };
+    
+    // Try to extract AI Consolidated Summary from raw text or notes
+    if (!normalized.summary && extracted?.rawText) {
+      const rawText = extracted.rawText.toLowerCase();
+      
+      // Look for summary indicators in text
+      if (rawText.includes('summary') || rawText.includes('executive') || rawText.includes('overview')) {
+        const lines = extracted.rawText.split('\n');
+        const summaryLines = lines.filter(line => 
+          line.toLowerCase().includes('summary') || 
+          line.toLowerCase().includes('overview') ||
+          line.toLowerCase().includes('executive')
+        );
+        
+        if (summaryLines.length > 0) {
+          normalized.summary = summaryLines.join(' | ');
+        }
+      }
+    }
+    
+    // Extract specifications more aggressively if not found
+    if (normalized.specifications === 'Not specified' && extracted?.rawText) {
+      const rawText = extracted.rawText.toLowerCase();
+      
+      // Look for specifications indicators
+      if (rawText.includes('specification') || rawText.includes('technical') || 
+          rawText.includes('configuration') || rawText.includes('features')) {
+        const lines = extracted.rawText.split('\n');
+        const specLines = lines.filter(line => 
+          line.toLowerCase().includes('spec') || 
+          line.toLowerCase().includes('gen') ||
+          line.toLowerCase().includes('ram') ||
+          line.toLowerCase().includes('gb') ||
+          line.toLowerCase().includes('ssd') ||
+          line.toLowerCase().includes('display') ||
+          line.toLowerCase().includes('processor')
+        );
+        
+        if (specLines.length > 0) {
+          normalized.specifications = specLines.join(', ');
+        }
+      }
+    }
+    
+    console.log('✅ Normalized data:', normalized);
+    return normalized;
+  };
+
+  // Price formatting helper
+  const formatPriceDisplay = (price) => {
+    if (!price || price === 'Not specified') return 'Not specified';
+    
+    // If price is an object with currency info
+    if (typeof price === 'object' && price !== null) {
+      return price.formatted || price.raw || price.value || 'Not specified';
+    }
+    
+    // If price is a string with currency symbol
+    if (typeof price === 'string') {
+      // Check if it's already formatted
+      if (price.includes('$') || price.includes('€') || price.includes('£')) {
+        return price;
+      }
+      // Try to parse as number
+      const num = parseFloat(price.replace(/[^0-9.-]+/g, ""));
+      if (!isNaN(num)) {
+        return `$${num.toLocaleString()}`;
+      }
+      return price;
+    }
+    
+    // If price is a number, assume USD
+    if (!isNaN(price)) {
+      return `$${parseFloat(price).toLocaleString()}`;
+    }
+    
+    return price;
+  };
+
+  // Get currency code from price object
+  const getCurrencyCode = (price) => {
+    if (!price || typeof price !== 'object') return '';
+    return price.currency || price.currencyCode || '';
+  };
+
+  // Get currency name from price object
+  const getCurrencyName = (price) => {
+    if (!price || typeof price !== 'object') return '';
+    return price.currencyName || price.currency || '';
+  };
+
   // Load vendors
   useEffect(() => {
     const loadVendors = async () => {
@@ -54,7 +186,7 @@ function App() {
         size: file.size,
         lastModified: new Date(file.lastModified).toLocaleString()
       });
-
+      
       // Clear previous results
       setParsedResult(null);
     } else {
@@ -66,21 +198,21 @@ function App() {
 
   const handleParseDemoProposal = async () => {
     console.log('🚀 Starting parse demo proposal...');
-
+    
     if (!selectedFile) {
       alert('❌ Please select a file first');
       return;
     }
-
+    
     setLoading(true);
     setUploadProgress(0);
     setParsedResult(null);
-
+    
     try {
       // Create FormData
       const formData = new FormData();
       formData.append('file', selectedFile);
-
+      
       // Simulate upload progress
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => {
@@ -91,84 +223,63 @@ function App() {
           return prev + 10;
         });
       }, 200);
-
+      
       // Debug FormData
       console.log('📋 FormData created. Entries:');
       for (let [key, value] of formData.entries()) {
-        console.log(`  ${key}:`, value instanceof File ?
+        console.log(`  ${key}:`, value instanceof File ? 
           `File: ${value.name} (${value.size} bytes)` : value);
       }
-
+      
       // Call API
       console.log('📤 Sending to API...');
-      const result = await proposalApi.parseDemoWithFile(formData);
-
+      const response = await proposalApi.parseDemoWithFile(formData);
+      
       clearInterval(progressInterval);
       setUploadProgress(100);
-
-      console.log('✅ API Response:', result);
-
-      // Handle response - FIXED SECTION
-      if (result.success) {
-        // CRITICAL FIX: Extract data from the nested structure
-        // The API returns: { success: true, data: { extracted: {...} } }
-        const extractedData = result.data?.extracted || result.data || result;
-
-        console.log('📊 Extracted data:', {
-          title: extractedData?.title,
-          totalPrice: extractedData?.totalPrice,
-          hasTitle: !!extractedData?.title,
-          hasPrice: !!extractedData?.totalPrice,
-          keys: Object.keys(extractedData || {})
-        });
-
-        // Ensure we have a valid object
-        if (extractedData && typeof extractedData === 'object') {
-          setParsedResult(extractedData);
-          console.log('✅ Data set to state:', extractedData);
-        } else {
-          throw new Error('Invalid data format received from API');
-        }
-
-        // Auto-switch to show results
-        setTimeout(() => {
-          const resultsElement = document.getElementById('parsed-results');
-          if (resultsElement) {
-            resultsElement.scrollIntoView({
-              behavior: 'smooth',
-              block: 'start'
-            });
-          }
-        }, 200);
+      
+      console.log('✅ API Response:', response);
+      
+      // Normalize the response data
+      const normalizedData = normalizeParsedData(response.data || response);
+      
+      // Ensure we have a valid object
+      if (normalizedData) {
+        setParsedResult(normalizedData);
+        console.log('✅ Normalized data set to state:', normalizedData);
       } else {
-        // Handle error case
-        const errorData = {
-          error: result.message || result.error || 'Unknown error occurred',
-          success: false
-        };
-        setParsedResult(errorData);
-        console.error('❌ API returned error:', errorData);
-        alert(`Error: ${result.message || result.error}`);
+        throw new Error('Invalid data format received from API');
       }
-
+      
+      // Auto-switch to show results
+      setTimeout(() => {
+        const resultsElement = document.getElementById('parsed-results');
+        if (resultsElement) {
+          resultsElement.scrollIntoView({ 
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }
+      }, 200);
+      
     } catch (error) {
       console.error('❌ Parse error:', error);
-
-      const errorMessage =
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        error.message ||
+      
+      const errorMessage = 
+        error.response?.data?.error || 
+        error.response?.data?.message || 
+        error.message || 
         'Unknown error occurred';
-
+      
       const errorData = {
         error: errorMessage,
         success: false,
         details: error.response?.data?.details
       };
-
+      
       setParsedResult(errorData);
       console.error('❌ Error data set:', errorData);
-
+      
       alert(`Error: ${errorMessage}`);
     } finally {
       setLoading(false);
@@ -178,7 +289,7 @@ function App() {
 
   const handleCompareProposals = async () => {
     const rfpId = rfps[0]?._id || '69306ad0666b5f64831825d9';
-
+    
     try {
       const result = await proposalApi.compare(rfpId);
       setComparisonResult(result.data);
@@ -316,7 +427,7 @@ function App() {
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h2 className="text-xl font-bold mb-4">📄 Parse Vendor Proposal</h2>
               <p className="text-gray-600 mb-6">Upload a proposal document (PDF/DOCX) and AI will extract key details</p>
-
+              
               {/* File Upload Section */}
               <div className="mb-8 p-4 border-2 border-dashed border-gray-300 rounded-lg">
                 <div className="flex flex-col items-center justify-center">
@@ -325,7 +436,7 @@ function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
                   </div>
-
+                  
                   <label className="cursor-pointer bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors">
                     <span className="font-semibold">Choose File</span>
                     <input
@@ -336,11 +447,11 @@ function App() {
                       id="file-input"
                     />
                   </label>
-
+                  
                   <p className="mt-2 text-sm text-gray-500">or drag and drop</p>
                   <p className="mt-1 text-xs text-gray-400">PDF, DOCX, TXT up to 10MB</p>
                 </div>
-
+                
                 {fileName && (
                   <div className="mt-4 p-3 bg-green-50 rounded border border-green-200">
                     <div className="flex items-center justify-between">
@@ -350,7 +461,7 @@ function App() {
                         </svg>
                         <span className="font-medium">{fileName}</span>
                       </div>
-                      <button
+                      <button 
                         onClick={() => {
                           setSelectedFile(null);
                           setFileName('');
@@ -373,8 +484,8 @@ function App() {
                   className={`
                     px-8 py-3 rounded-lg font-semibold text-lg
                     transition-all duration-300 transform hover:scale-105
-                    ${!selectedFile || loading
-                      ? 'bg-gray-400 cursor-not-allowed'
+                    ${!selectedFile || loading 
+                      ? 'bg-gray-400 cursor-not-allowed' 
                       : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'}
                   `}
                 >
@@ -398,7 +509,7 @@ function App() {
                     <span>{uploadProgress}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div
+                    <div 
                       className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
                       style={{ width: `${uploadProgress}%` }}
                     ></div>
@@ -408,10 +519,8 @@ function App() {
             </div>
           )}
 
-
-
           {/* Results Section */}
-          <div id="parsed-results" style={{ marginTop: '30px' }}>
+          <div id="parsed-results" className="mt-8">
             {parsedResult && (
               <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
                 {/* Header */}
@@ -421,22 +530,23 @@ function App() {
                 `}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
-                      {parsedResult.success === false ? '❌ Parsing Failed' : '✅ AI Parsing Results'}
+                      {parsedResult.success === false ? '❌ Parsing Failed' : '✅ Proposal Analysis Complete'}
                       {parsedResult.score && (
                         <span className="ml-4 px-3 py-1 bg-white bg-opacity-20 rounded-full text-sm">
-                          AI Score: {parsedResult.score}/100
+                          AI Confidence: {parsedResult.score}%
                         </span>
                       )}
                     </div>
-                    <button
+                    <button 
                       onClick={() => setParsedResult(null)}
-                      className="text-white hover:text-gray-200"
+                      className="text-white hover:text-gray-200 text-lg"
+                      title="Clear results"
                     >
-                      ✕ Clear
+                      ✕
                     </button>
                   </div>
                 </div>
-
+                
                 {/* Error State */}
                 {parsedResult.success === false ? (
                   <div className="p-6">
@@ -451,141 +561,189 @@ function App() {
                     </div>
                   </div>
                 ) : (
-                  /* Success State */
+                  /* Success State - Consolidated View */
                   <div className="p-6">
-                    {/* Summary Card */}
+                    {/* Executive Summary Card */}
                     <div className="mb-8 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200">
-                      <h3 className="font-bold text-lg text-blue-800 mb-3">📋 Proposal Summary</h3>
-                      <p className="text-blue-700">{parsedResult.summary || "No summary available"}</p>
+                      <div className="flex items-center mb-3">
+                        <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                          <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                          </svg>
+                        </div>
+                        <h3 className="font-bold text-lg text-blue-800">📋 Executive Summary</h3>
+                      </div>
+                      <div className="text-gray-700 leading-relaxed">
+                        {parsedResult.summary || `Proposal titled "${parsedResult.title}" from ${parsedResult.vendorName || 'an unknown vendor'} with a total value of ${formatPriceDisplay(parsedResult.totalPrice)}.`}
+                      </div>
+                      
+                      {/* Quick Stats */}
+                      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="text-center p-2 bg-white rounded border">
+                          <div className="text-sm text-gray-500">Total Value</div>
+                          <div className="text-xl font-bold text-green-600">
+                            {formatPriceDisplay(parsedResult.totalPrice)}
+                          </div>
+                          {getCurrencyCode(parsedResult.totalPrice) && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              {getCurrencyCode(parsedResult.totalPrice)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-center p-2 bg-white rounded border">
+                          <div className="text-sm text-gray-500">Delivery Time</div>
+                          <div className="text-lg font-semibold text-blue-600">
+                            {parsedResult.deliveryTimeline || 'N/A'}
+                          </div>
+                        </div>
+                        <div className="text-center p-2 bg-white rounded border">
+                          <div className="text-sm text-gray-500">Warranty</div>
+                          <div className="text-lg font-semibold text-purple-600">
+                            {parsedResult.warranty || 'N/A'}
+                          </div>
+                        </div>
+                        <div className="text-center p-2 bg-white rounded border">
+                          <div className="text-sm text-gray-500">Payment Terms</div>
+                          <div className="text-lg font-semibold text-orange-600">
+                            {parsedResult.paymentTerms || 'N/A'}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-
-                    {/* Key Metrics Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                      {/* Total Price */}
-                      <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
-                        <div className="flex items-center mb-3">
-                          <div className="p-2 bg-green-100 rounded-lg mr-3">
-                            <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
+                    
+                    {/* AI Consolidated Summary Section - UPDATED */}
+                    <div className="mb-8 p-5 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200">
+                      <h4 className="font-bold text-gray-800 mb-4 flex items-center">
+                        <svg className="w-5 h-5 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                        AI Consolidated Summary - Key Details
+                      </h4>
+                      
+                      <div className="space-y-3">
+                        {/* Vendor Name */}
+                        <div className="flex items-start">
+                          <div className="min-w-32 flex items-center">
+                            <span className="text-indigo-500 mr-2">•</span>
+                            <span className="font-medium text-gray-700">Vendor Name:</span>
                           </div>
-                          <h4 className="font-bold text-gray-700">Total Price</h4>
+                          <div className="ml-4">
+                            <span className="font-semibold">{parsedResult.vendorName || 'Not specified'}</span>
+                          </div>
                         </div>
-                        <div className="text-2xl font-bold text-green-600">
-                          ${parsedResult.totalPrice?.toLocaleString() || '0'}
+                        
+                        {/* Total Price */}
+                        <div className="flex items-start">
+                          <div className="min-w-32 flex items-center">
+                            <span className="text-indigo-500 mr-2">•</span>
+                            <span className="font-medium text-gray-700">Total Price:</span>
+                          </div>
+                          <div className="ml-4">
+                            <span className="font-semibold text-green-600">
+                              {formatPriceDisplay(parsedResult.totalPrice)}
+                            </span>
+                            {getCurrencyCode(parsedResult.totalPrice) && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                Currency: {getCurrencyCode(parsedResult.totalPrice)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Budget Allocated */}
+                        <div className="flex items-start">
+                          <div className="min-w-32 flex items-center">
+                            <span className="text-indigo-500 mr-2">•</span>
+                            <span className="font-medium text-gray-700">Budget Allocated:</span>
+                          </div>
+                          <div className="ml-4">
+                            <span className="font-semibold">
+                              {formatPriceDisplay(parsedResult.budget)}
+                            </span>
+                            {getCurrencyCode(parsedResult.budget) && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                Currency: {getCurrencyCode(parsedResult.budget)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Items */}
+                        <div className="flex items-start">
+                          <div className="min-w-32 flex items-center">
+                            <span className="text-indigo-500 mr-2">•</span>
+                            <span className="font-medium text-gray-700">Items:</span>
+                          </div>
+                          <div className="ml-4">
+                            {Array.isArray(parsedResult.items) && parsedResult.items.length > 0 ? (
+                              <ul className="list-disc pl-5 space-y-1">
+                                {parsedResult.items.map((item, index) => (
+                                  <p key={index} className="text-gray-700">{item}</p>
+                                ))}
+                              </ul>
+                            ) : parsedResult.items && parsedResult.items !== 'Not specified' ? (
+                              <span className="text-gray-700">{parsedResult.items}</span>
+                            ) : (
+                              <span className="text-gray-500 italic">Not specified</span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Quantity */}
+                        <div className="flex items-start">
+                          <div className="min-w-32 flex items-center">
+                            <span className="text-indigo-500 mr-2">•</span>
+                            <span className="font-medium text-gray-700">Quantity:</span>
+                          </div>
+                          <div className="ml-4">
+                            <span className="font-semibold">{parsedResult.quantity || 'Not specified'}</span>
+                          </div>
+                        </div>
+                        
+                        {/* Warranty */}
+                        <div className="flex items-start">
+                          <div className="min-w-32 flex items-center">
+                            <span className="text-indigo-500 mr-2">•</span>
+                            <span className="font-medium text-gray-700">Warranty:</span>
+                          </div>
+                          <div className="ml-4">
+                            <span className="text-gray-700">{parsedResult.warranty || 'Not specified'}</span>
+                          </div>
+                        </div>
+                        
+                        {/* Delivery Date/Timeline */}
+                        <div className="flex items-start">
+                          <div className="min-w-32 flex items-center">
+                            <span className="text-indigo-500 mr-2">•</span>
+                            <span className="font-medium text-gray-700">Delivery Timeline:</span>
+                          </div>
+                          <div className="ml-4">
+                            <span className="text-gray-700">{parsedResult.deliveryTimeline || 'Not specified'}</span>
+                          </div>
                         </div>
                       </div>
-
-                      {/* Delivery Timeline */}
-                      <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
-                        <div className="flex items-center mb-3">
-                          <div className="p-2 bg-blue-100 rounded-lg mr-3">
-                            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                          </div>
-                          <h4 className="font-bold text-gray-700">Delivery Timeline</h4>
-                        </div>
-                        <div className="text-xl font-semibold text-blue-600">
-                          {parsedResult.deliveryTimeline || 'Not specified'}
-                        </div>
-                      </div>
-
-                      {/* Vendor Name */}
-                      <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
-                        <div className="flex items-center mb-3">
-                          <div className="p-2 bg-purple-100 rounded-lg mr-3">
-                            <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    </div>
+                    
+                    {/* Proposal Details in Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                      {/* Left Column - Basic Info */}
+                      <div className="space-y-6">
+                        {/* Vendor Information */}
+                        <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
+                          <h4 className="font-bold text-gray-800 mb-4 flex items-center">
+                            <svg className="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
                             </svg>
-                          </div>
-                          <h4 className="font-bold text-gray-700">Vendor</h4>
-                        </div>
-                        <div className="text-xl font-semibold text-purple-600">
-                          {parsedResult.vendorName || 'Not specified'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Details Section */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                      {/* Left Column */}
-                      <div className="space-y-6">
-                        {/* Items */}
-                        {parsedResult.items && (
-                          <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
-                            <h4 className="font-bold text-gray-800 mb-3">📦 Items/Services</h4>
-                            <div className="space-y-2">
-                              {Array.isArray(parsedResult.items) ? (
-                                parsedResult.items.map((item, index) => (
-                                  <div key={index} className="p-3 bg-gray-50 rounded border border-gray-200">
-                                    <div className="flex items-start">
-                                      <span className="text-blue-500 mr-2">•</span>
-                                      <span>{item}</span>
-                                    </div>
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="p-3 bg-gray-50 rounded border border-gray-200">
-                                  {parsedResult.items}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Specifications */}
-                        {parsedResult.specifications && (
-                          <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
-                            <h4 className="font-bold text-gray-800 mb-3">🔧 Specifications</h4>
-                            <div className="p-3 bg-gray-50 rounded border border-gray-200">
-                              {parsedResult.specifications}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Right Column */}
-                      <div className="space-y-6">
-                        {/* Payment Terms */}
-                        <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
-                          <h4 className="font-bold text-gray-800 mb-3">💳 Payment Terms</h4>
-                          <div className="p-3 bg-gray-50 rounded border border-gray-200">
-                            {parsedResult.paymentTerms || 'Not specified'}
-                          </div>
-                        </div>
-
-                        {/* Warranty */}
-                        <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
-                          <h4 className="font-bold text-gray-800 mb-3">🛡️ Warranty</h4>
-                          <div className="p-3 bg-gray-50 rounded border border-gray-200">
-                            {parsedResult.warranty || 'Not specified'}
-                          </div>
-                        </div>
-
-                        {/* Additional Details */}
-                        <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
-                          <h4 className="font-bold text-gray-800 mb-3">📝 Additional Details</h4>
-                          <div className="space-y-3">
+                            Vendor Details
+                          </h4>
+                          <div className="space-y-2">
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Budget Allocated:</span>
-                              <span className="font-semibold">
-                                {parsedResult.budget && parsedResult.budget !== 'Not specified'
-                                  ? (() => {
-                                    // Check if it already has a currency symbol
-                                    const budgetStr = parsedResult.budget.toString();
-                                    if (budgetStr.includes('$') || budgetStr.includes('₹') || budgetStr.includes('€') || budgetStr.includes('£')) {
-                                      return budgetStr;
-                                    }
-                                    // Add $ as default
-                                    return `$${budgetStr}`;
-                                  })()
-                                  : 'Not specified'}
-                              </span>
+                              <span className="text-gray-600">Vendor Name:</span>
+                              <span className="font-semibold">{parsedResult.vendorName || 'Not specified'}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Quantity:</span>
-                              <span className="font-semibold">{parsedResult.quantity || 'Not specified'}</span>
+                              <span className="text-gray-600">Proposal Title:</span>
+                              <span className="font-semibold">{parsedResult.title || 'Not specified'}</span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-gray-600">RFP Reference:</span>
@@ -593,61 +751,141 @@ function App() {
                             </div>
                           </div>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Simple Consolidated Summary */}
-                    <div className="mt-6 p-6 bg-white rounded-xl shadow border">
-                      <h4 className="font-bold text-xl text-gray-800 mb-4 border-b pb-2">📋 AI Analysis Summary</h4>
-
-                      <div className="space-y-3 text-gray-700">
-                        <div className="flex items-start">
-                          <div className="bg-blue-100 p-2 rounded-lg mr-3">
-                            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                          </div>
-                          <div>
-                            <p className="font-medium">Proposal Overview:</p>
-                            <p className="text-gray-600">{parsedResult.summary || `A proposal from ${parsedResult.vendorName || 'vendor'} for ${parsedResult.title || 'procurement'} valued at $${parsedResult.totalPrice?.toLocaleString() || '0'}.`}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-start">
-                          <div className="bg-green-100 p-2 rounded-lg mr-3">
-                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        
+                        {/* Financial Summary */}
+                        <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
+                          <h4 className="font-bold text-gray-800 mb-4 flex items-center">
+                            <svg className="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                             </svg>
-                          </div>
-                          <div>
-                            <p className="font-medium">Key Terms:</p>
-                            <p className="text-gray-600">
-                              • Total Price: <span className="font-semibold">${parsedResult.totalPrice?.toLocaleString() || '0'}</span><br />
-                              • Quantity: <span className="font-semibold">{parsedResult.quantity || 'Not specified'}</span> units<br />
-                              • Delivery: <span className="font-semibold">{parsedResult.deliveryTimeline || 'Not specified'}</span><br />
-                              • Payment: <span className="font-semibold">{parsedResult.paymentTerms || 'Not specified'}</span><br />
-                              • Warranty: <span className="font-semibold">{parsedResult.warranty || 'Not specified'}</span>
-                            </p>
+                            Financial Summary
+                          </h4>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center p-2 bg-green-50 rounded">
+                              <span className="text-gray-700">Total Price:</span>
+                              <div className="text-right">
+                                <span className="text-xl font-bold text-green-600">
+                                  {formatPriceDisplay(parsedResult.totalPrice)}
+                                </span>
+                                {getCurrencyCode(parsedResult.totalPrice) && (
+                                  <div className="text-xs text-gray-500">
+                                    {getCurrencyCode(parsedResult.totalPrice)}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">Budget:</span>
+                              <div className="text-right">
+                                <span className="font-semibold">
+                                  {formatPriceDisplay(parsedResult.budget)}
+                                </span>
+                                {getCurrencyCode(parsedResult.budget) && (
+                                  <div className="text-xs text-gray-500">
+                                    {getCurrencyCode(parsedResult.budget)}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Quantity:</span>
+                              <span className="font-semibold">{parsedResult.quantity || 'Not specified'}</span>
+                            </div>
                           </div>
                         </div>
-
-                        <div className="flex items-start">
-                          <div className="bg-purple-100 p-2 rounded-lg mr-3">
-                            <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                      </div>
+                      
+                      {/* Middle Column - Items & Specifications */}
+                      <div className="space-y-6">
+                        {/* Items/Services */}
+                        <div className="bg-white p-5 rounded-lg shadow border border-gray-200 h-full">
+                          <h4 className="font-bold text-gray-800 mb-4 flex items-center">
+                            <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
                             </svg>
+                            Items & Services
+                          </h4>
+                          <div className="space-y-2">
+                            {Array.isArray(parsedResult.items) && parsedResult.items.length > 0 ? (
+                              parsedResult.items.map((item, index) => (
+                                <div key={index} className="p-3 bg-blue-50 rounded border border-blue-100">
+                                  <div className="flex items-start">
+                                    <span className="text-blue-500 mr-2">•</span>
+                                    <span className="text-gray-700">{item}</span>
+                                  </div>
+                                </div>
+                              ))
+                            ) : parsedResult.items && parsedResult.items !== 'Not specified' ? (
+                              <div className="p-3 bg-blue-50 rounded border border-blue-100">
+                                {parsedResult.items}
+                              </div>
+                            ) : (
+                              <div className="p-3 bg-gray-50 rounded border text-gray-500 italic">
+                                No items specified
+                              </div>
+                            )}
                           </div>
-                          <div>
-                            <p className="font-medium">Items Included:</p>
-                            <p className="text-gray-600">
-                              {Array.isArray(parsedResult.items) ?
-                                parsedResult.items.slice(0, 2).join(', ') + (parsedResult.items.length > 2 ? ` and ${parsedResult.items.length - 2} more items` : '') :
-                                parsedResult.items || 'No items specified'}
-                            </p>
+                        </div>
+                      </div>
+                      
+                      {/* Right Column */}
+                      <div className="space-y-6">
+                        {/* Payment Terms */}
+                        <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
+                          <h4 className="font-bold text-gray-800 mb-4 flex items-center">
+                            <svg className="w-5 h-5 mr-2 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                            </svg>
+                            Payment Terms
+                          </h4>
+                          <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                            {parsedResult.paymentTerms || 'Not specified'}
+                          </div>
+                        </div>
+                        
+                        {/* Specifications Section - Separated from AI Summary */}
+                        <div className="bg-white p-5 rounded-lg shadow border border-gray-200">
+                          <h4 className="font-bold text-gray-800 mb-4 flex items-center">
+                            <svg className="w-5 h-5 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                            </svg>
+                            Specifications
+                          </h4>
+                          <div className="p-3 bg-gray-50 rounded border border-gray-200">
+                            {parsedResult.specifications && parsedResult.specifications !== 'Not specified' ? (
+                              <div className="space-y-2">
+                                {parsedResult.specifications.split(',').map((spec, index) => (
+                                  <div key={index} className="flex items-start">
+                                    <span className="text-purple-500 mr-2">•</span>
+                                    <span className="text-gray-700">{spec.trim()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-gray-500 italic">No specifications provided</div>
+                            )}
                           </div>
                         </div>
                       </div>
                     </div>
+                    
+                    {/* Currency Analysis Section */}
+                    {parsedResult.totalPrice?.currency && parsedResult.budget?.currency && 
+                     parsedResult.totalPrice.currency !== parsedResult.budget.currency && (
+                      <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <div className="flex items-center mb-2">
+                          <svg className="w-5 h-5 text-yellow-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.998-.833-2.732 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                          </svg>
+                          <h5 className="font-bold text-yellow-800">⚠️ Currency Mismatch</h5>
+                        </div>
+                        <p className="text-sm text-yellow-700">
+                          Proposal price is in <strong>{getCurrencyName(parsedResult.totalPrice) || parsedResult.totalPrice.currency}</strong> 
+                          but budget is in <strong>{getCurrencyName(parsedResult.budget) || parsedResult.budget.currency}</strong>. 
+                          Currency conversion may be required for accurate comparison.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
