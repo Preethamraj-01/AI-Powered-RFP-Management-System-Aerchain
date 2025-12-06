@@ -1,5 +1,15 @@
 AI-Powered RFP Management System
 
+To run project
+
+1. Clone repository
+2. Install dependencies: `npm install` (both folders, backend and frontend)
+3. Configure environment variables (.env files)
+4. Run MailHog: `MailHog.exe`
+5. Start backend: `node server.js`
+6. Start frontend: `npm start`
+
+-----------------------------------------------------------------------------
 
 Overview
 A comprehensive procurement management system designed to streamline the Request for Proposal (RFP) process using artificial intelligence. The system transforms natural language procurement requirements into structured RFPs, manages vendor relationships, automates email communications, and provides intelligent proposal comparison using AI analysis.
