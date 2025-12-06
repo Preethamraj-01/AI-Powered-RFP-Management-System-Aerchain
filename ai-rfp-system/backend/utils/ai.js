@@ -276,7 +276,7 @@ Expected JSON format:
     console.log('Prompt includes currency hint:', currencyHint);
     
     const response = await client.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.1,
       response_format: { type: "json_object" }
@@ -548,7 +548,7 @@ Focus on price, delivery, terms, and value.
 `;
 
     const response = await client.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.1,
       response_format: { type: "json_object" }
