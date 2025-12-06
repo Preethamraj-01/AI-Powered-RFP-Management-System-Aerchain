@@ -88,7 +88,7 @@ Navigate to the backend directory: cd backend
 
 Install dependencies: npm install
 
-Create environment configuration file: Copy .env (Note : I will add the .env code in the ReadMe of Github, since I was unable to push secrets)
+Create environment configuration file: Copy .env (Note : I will add the .env code in the ReadMe of Github {Copy from code part}, since I was unable to push secrets..)
 
 Configure the following environment variables in .env:
 
