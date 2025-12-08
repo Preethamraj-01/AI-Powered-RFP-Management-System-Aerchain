@@ -1,11 +1,25 @@
 To run code
 
 1. Clone repository
-2. Install dependencies: `npm install` (both folders, frontend and backend)
-3. Configure environment variables (.env files)
-4. Run MailHog: `MailHog.exe`
-5. Start backend: `node server.js`
-6. Start frontend: `npm start`
+2. mkdir backend
+cd backend
+npm init -y
+npm install express cors mongoose dotenv
+npm install openai
+npm install nodemailer imap-simple
+npm install multer
+npm install pdf-parse
+npm create vite@latest frontend --template react
+npm install axios
+
+cd frontend
+npm install
+npm run dev
+npm install groq-sdk  ( Install dependencies: `npm install` (both folders, frontend and backend) )
+4. Configure environment variables (.env files)
+5. Run MailHog: `MailHog.exe`
+6. Start backend: `node server.js`
+7. Start frontend: `npm start`
 
 
 
