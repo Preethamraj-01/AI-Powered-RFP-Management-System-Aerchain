@@ -21,6 +21,7 @@ npm install groq-sdk  ( Install dependencies: `npm install` (both folders, front
 6. Start backend: `node server.js`
 7. Start frontend: `npm start`
 
+To run MailHog server: http://localhost:8025
 
 
 Please find .env file
